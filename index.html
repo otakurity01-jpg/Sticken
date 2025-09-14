@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stickman Fighter - Tekken Style Game</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header class="game-header">
+            <h1>STICKMAN FIGHTER</h1>
+            <p>Choose your fighter and battle!</p>
+        </header>
+
+        <!-- Character Selection Screen -->
+        <div id="character-select" class="character-select">
+            <h2>Select Your Fighter</h2>
+            <div class="character-grid">
+                <div class="character-card" data-character="yukito">
+                    <div class="character-preview" style="background-color: #4A90E2;"></div>
+                    <h3>Yukito</h3>
+                    <p>Male • Punching Specialist</p>
+                    <p class="super-move">Super: One Punch Smash</p>
+                </div>
+                <div class="character-card" data-character="yuka">
+                    <div class="character-preview" style="background-color: #E24A90;"></div>
+                    <h3>Yuka</h3>
+                    <p>Female • Punching Specialist</p>
+                    <p class="super-move">Super: One Punch Smash</p>
+                </div>
+                <div class="character-card" data-character="chao">
+                    <div class="character-preview" style="background-color: #4AE290;"></div>
+                    <h3>Chao</h3>
+                    <p>Male • Kicking Specialist</p>
+                    <p class="super-move">Super: Dragon Kick Barrage</p>
+                </div>
+                <div class="character-card" data-character="chaoli">
+                    <div class="character-preview" style="background-color: #9A4AE2;"></div>
+                    <h3>Chaoli</h3>
+                    <p>Female • Kicking Specialist</p>
+                    <p class="super-move">Super: Dragon Kick Barrage</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Game Canvas and UI -->
+        <div id="game-container" class="game-container hidden">
+            <div class="game-ui">
+                <div class="health-bars">
+                    <div class="player-health">
+                        <span class="player-name">PLAYER</span>
+                        <div class="health-bar">
+                            <div class="health-fill" id="player-health"></div>
+                        </div>
+                        <div class="super-meter">
+                            <div class="super-fill" id="player-super"></div>
+                        </div>
+                    </div>
+                    <div class="vs-indicator">VS</div>
+                    <div class="enemy-health">
+                        <span class="enemy-name">CPU</span>
+                        <div class="health-bar">
+                            <div class="health-fill" id="enemy-health"></div>
+                        </div>
+                        <div class="super-meter">
+                            <div class="super-fill" id="enemy-super"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <canvas id="gameCanvas" width="1000" height="600"></canvas>
+            
+            <div class="controls-info">
+                <div class="control-group">
+                    <h4>Movement</h4>
+                    <span>W - Jump | A - Left | S - Crouch | D - Right</span>
+                </div>
+                <div class="control-group">
+                    <h4>Attacks</h4>
+                    <span>J - Light | K - Heavy | L - Combo | U - Super</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Game Over Screen -->
+        <div id="game-over" class="game-over hidden">
+            <div class="game-over-content">
+                <h2 id="game-result">VICTORY!</h2>
+                <p id="game-message">You defeated your opponent!</p>
+                <button class="btn btn--primary" id="restart-btn">Play Again</button>
+                <button class="btn btn--secondary" id="menu-btn">Character Select</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
