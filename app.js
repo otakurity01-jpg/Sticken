@@ -1,7 +1,5 @@
-// ===== STICKMAN FIGHTER GAME =====
-// This is your complete 2D fighting game with all the mechanics!
+// ===== STICKMAN FIGHTER: PHASE 1 (GAME FEEL & IMPACT) =====
 
-// Game Configuration
 const GAME_CONFIG = {
     canvas: {
         width: 1000,
@@ -11,56 +9,142 @@ const GAME_CONFIG = {
         gravity: 0.8,
         jumpPower: 15,
         moveSpeed: 5,
-        friction: 0.8
+        friction: 0.82
     },
     combat: {
         maxHealth: 100,
         maxSuperMeter: 100,
-        damage: {
-            light: 8,
-            heavy: 15,
-            combo: 25,
-            super: 90 // Leaves enemy with 10% HP
+        attacks: {
+            light: {
+                damage: 8,
+                cooldown: 14,
+                hitstop: 5,
+                shake: 3,
+                pushback: 4,
+                hitstun: 14
+            },
+            heavy: {
+                damage: 16,
+                cooldown: 28,
+                hitstop: 9,
+                shake: 8,
+                pushback: 9,
+                hitstun: 24
+            },
+            combo: {
+                damage: 24,
+                cooldown: 36,
+                hitstop: 12,
+                shake: 12,
+                pushback: 14,
+                hitstun: 30
+            },
+            super: {
+                damage: 85,
+                cooldown: 55,
+                hitstop: 20,
+                shake: 20,
+                pushback: 22,
+                hitstun: 45
+            }
         }
     }
 };
 
-// Character Data
 const CHARACTERS = {
     yukito: {
         name: "Yukito",
         type: "male",
         specialty: "punches",
         color: "#4A90E2",
+        sparkColor: "#70B4FF",
         superMove: "One Punch Smash"
     },
     yuka: {
         name: "Yuka",
-        type: "female", 
+        type: "female",
         specialty: "punches",
         color: "#E24A90",
+        sparkColor: "#FF70B4",
         superMove: "One Punch Smash"
     },
     chao: {
         name: "Chao",
         type: "male",
-        specialty: "kicks", 
+        specialty: "kicks",
         color: "#4AE290",
+        sparkColor: "#70FFB4",
         superMove: "Dragon Kick Barrage"
     },
     chaoli: {
         name: "Chaoli",
         type: "female",
         specialty: "kicks",
-        color: "#9A4AE2", 
+        color: "#9A4AE2",
+        sparkColor: "#C070FF",
         superMove: "Dragon Kick Barrage"
     }
 };
 
-// Game State Manager
+// Particle Engine for Sparks & Shockwaves
+class Particle {
+    constructor(x, y, vx, vy, color, size, life, shape = 'spark') {
+        this.x = x;
+        this.y = y;
+        this.vx = vx;
+        this.vy = vy;
+        this.color = color;
+        this.size = size;
+        this.maxLife = life;
+        this.life = life;
+        this.shape = shape; // 'spark', 'ring', 'circle'
+    }
+
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.vx *= 0.91;
+        this.vy *= 0.91;
+        this.life--;
+    }
+
+    draw(ctx) {
+        const progress = Math.max(0, this.life / this.maxLife);
+        ctx.save();
+        ctx.globalAlpha = progress;
+
+        if (this.shape === 'spark') {
+            const angle = Math.atan2(this.vy, this.vx);
+            const speed = Math.hypot(this.vx, this.vy);
+            ctx.translate(this.x, this.y);
+            ctx.rotate(angle);
+            ctx.strokeStyle = this.color;
+            ctx.lineWidth = this.size * progress;
+            ctx.beginPath();
+            ctx.moveTo(-speed * 1.5, 0);
+            ctx.lineTo(speed * 1.5, 0);
+            ctx.stroke();
+        } else if (this.shape === 'ring') {
+            const currentRadius = (1 - progress) * this.size;
+            ctx.strokeStyle = this.color;
+            ctx.lineWidth = 3 * progress;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, currentRadius, 0, Math.PI * 2);
+            ctx.stroke();
+        } else if (this.shape === 'circle') {
+            ctx.fillStyle = this.color;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.size * progress, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        ctx.restore();
+    }
+}
+
 class GameState {
     constructor() {
-        this.current = 'character-select'; // character-select, playing, game-over
+        this.current = 'character-select';
         this.selectedCharacter = null;
         this.enemyCharacter = null;
     }
@@ -71,12 +155,10 @@ class GameState {
     }
 
     updateUI() {
-        // Hide all screens
         document.getElementById('character-select').classList.add('hidden');
         document.getElementById('game-container').classList.add('hidden');
         document.getElementById('game-over').classList.add('hidden');
 
-        // Show current screen
         switch(this.current) {
             case 'character-select':
                 document.getElementById('character-select').classList.remove('hidden');
@@ -91,15 +173,14 @@ class GameState {
     }
 }
 
-// Fighter Class - This represents each character in the game
 class Fighter {
     constructor(character, x, y, isPlayer = true) {
         this.character = character;
         this.name = character.name;
         this.color = character.color;
+        this.sparkColor = character.sparkColor;
         this.specialty = character.specialty;
-        
-        // Position and physics
+
         this.x = x;
         this.y = y;
         this.width = 40;
@@ -107,54 +188,45 @@ class Fighter {
         this.velocityX = 0;
         this.velocityY = 0;
         this.onGround = false;
-        this.facingRight = isPlayer ? true : false;
-        
-        // Combat stats
+        this.facingRight = isPlayer;
+
         this.health = GAME_CONFIG.combat.maxHealth;
         this.superMeter = 0;
         this.isPlayer = isPlayer;
-        
-        // Animation and state
+
         this.currentAnimation = 'idle';
         this.animationFrame = 0;
         this.animationTimer = 0;
+
         this.attackCooldown = 0;
         this.isAttacking = false;
+        this.currentAttackType = null;
+        this.hitstun = 0; // Frames disabled after taking damage
+
         this.comboCount = 0;
         this.comboTimer = 0;
-        
-        // Ground level
         this.groundY = GAME_CONFIG.canvas.height - 100;
     }
 
-    // Update fighter each frame
     update() {
         this.updatePhysics();
         this.updateAnimation();
-        this.updateCooldowns();
-        this.updateCombo();
-        
-        // AI behavior for non-player
+        this.updateTimers();
+
         if (!this.isPlayer && gameState.current === 'playing') {
             this.updateAI();
         }
     }
 
-    // Physics system - handles movement and gravity
     updatePhysics() {
-        // Apply gravity
         if (!this.onGround) {
             this.velocityY += GAME_CONFIG.physics.gravity;
         }
 
-        // Update position
         this.x += this.velocityX;
         this.y += this.velocityY;
-
-        // Apply friction
         this.velocityX *= GAME_CONFIG.physics.friction;
 
-        // Ground collision
         if (this.y + this.height >= this.groundY) {
             this.y = this.groundY - this.height;
             this.velocityY = 0;
@@ -163,45 +235,46 @@ class Fighter {
             this.onGround = false;
         }
 
-        // Screen boundaries
         if (this.x < 0) this.x = 0;
         if (this.x + this.width > GAME_CONFIG.canvas.width) {
             this.x = GAME_CONFIG.canvas.width - this.width;
         }
     }
 
-    // Animation system
     updateAnimation() {
         this.animationTimer++;
-        if (this.animationTimer > 10) {
+        if (this.animationTimer > 8) {
             this.animationFrame++;
             this.animationTimer = 0;
         }
-        
-        // Determine current animation
-        if (this.isAttacking) {
+
+        // Priority 1: Hitstun / Flinch pose
+        if (this.hitstun > 0) {
+            this.currentAnimation = 'hurt';
+        } else if (this.isAttacking) {
             this.currentAnimation = 'attack';
         } else if (!this.onGround) {
             this.currentAnimation = 'jump';
-        } else if (Math.abs(this.velocityX) > 0.5) {
+        } else if (Math.abs(this.velocityX) > 0.4) {
             this.currentAnimation = 'walk';
         } else {
             this.currentAnimation = 'idle';
         }
     }
 
-    // Update cooldowns and timers
-    updateCooldowns() {
+    updateTimers() {
+        if (this.hitstun > 0) {
+            this.hitstun--;
+        }
+
         if (this.attackCooldown > 0) {
             this.attackCooldown--;
             if (this.attackCooldown === 0) {
                 this.isAttacking = false;
+                this.currentAttackType = null;
             }
         }
-    }
 
-    // Combo system
-    updateCombo() {
         if (this.comboTimer > 0) {
             this.comboTimer--;
         } else {
@@ -209,8 +282,9 @@ class Fighter {
         }
     }
 
-    // Movement controls
     move(direction) {
+        if (this.hitstun > 0 || this.isAttacking) return;
+
         if (direction === 'left') {
             this.velocityX = -GAME_CONFIG.physics.moveSpeed;
             this.facingRight = false;
@@ -221,279 +295,247 @@ class Fighter {
     }
 
     jump() {
+        if (this.hitstun > 0 || this.isAttacking) return;
+
         if (this.onGround) {
             this.velocityY = -GAME_CONFIG.physics.jumpPower;
             this.onGround = false;
         }
     }
 
-    // Attack system
     attack(type, opponent) {
-        if (this.attackCooldown > 0) return false;
+        if (this.attackCooldown > 0 || this.hitstun > 0) return false;
 
-        let damage = 0;
-        let cooldown = 20;
+        const spec = GAME_CONFIG.combat.attacks[type];
+        if (!spec) return false;
 
-        switch(type) {
-            case 'light':
-                damage = GAME_CONFIG.combat.damage.light;
-                cooldown = 15;
-                break;
-            case 'heavy':
-                damage = GAME_CONFIG.combat.damage.heavy;
-                cooldown = 30;
-                break;
-            case 'combo':
-                damage = GAME_CONFIG.combat.damage.combo;
-                cooldown = 40;
-                this.comboCount = Math.min(this.comboCount + 1, 5);
-                this.comboTimer = 60;
-                break;
-            case 'super':
-                if (this.superMeter >= GAME_CONFIG.combat.maxSuperMeter) {
-                    // Super move leaves opponent with exactly 10% HP (or defeats them if health < 10%)
-                    const targetHealth = GAME_CONFIG.combat.maxHealth * 0.1;
-                    damage = Math.max(opponent.health - targetHealth, opponent.health);
-                    this.superMeter = 0;
-                    cooldown = 60;
-                } else {
-                    return false;
-                }
-                break;
+        if (type === 'super') {
+            if (this.superMeter < GAME_CONFIG.combat.maxSuperMeter) return false;
+            this.superMeter = 0;
         }
 
-        // Check if attack hits
+        this.attackCooldown = spec.cooldown;
+        this.isAttacking = true;
+        this.currentAttackType = type;
+
+        // Check if attack connects
         if (this.checkHit(opponent)) {
-            opponent.takeDamage(damage);
-            this.gainSuperMeter(damage * 0.5);
-            this.attackCooldown = cooldown;
-            this.isAttacking = true;
-            
-            // Create attack effect
-            this.createAttackEffect(type);
+            // Hit point coordinates between the characters
+            const contactX = this.facingRight
+                ? this.x + this.width + 15
+                : this.x - 15;
+            const contactY = this.y + (this.specialty === 'punches' ? 24 : 48);
+
+            opponent.takeHit(spec, this, contactX, contactY);
+            this.gainSuperMeter(spec.damage * 0.4);
+
+            if (this.isPlayer) {
+                this.comboCount = Math.min(this.comboCount + 1, 99);
+                this.comboTimer = 75;
+            }
+
             return true;
         }
 
-        this.attackCooldown = cooldown / 2;
-        this.isAttacking = true;
         return false;
     }
 
-    // Hit detection
     checkHit(opponent) {
         const distance = Math.abs(this.x - opponent.x);
-        const attackRange = 60;
-        
-        // Must be close enough and facing opponent
+        const attackRange = 75;
+
         if (distance > attackRange) return false;
-        
-        const facingOpponent = (this.facingRight && this.x < opponent.x) || 
+
+        const facingOpponent = (this.facingRight && this.x < opponent.x) ||
                               (!this.facingRight && this.x > opponent.x);
-        
+
         return facingOpponent;
     }
 
-    // Damage system
-    takeDamage(amount) {
-        this.health = Math.max(0, this.health - amount);
-        this.gainSuperMeter(amount * 0.3);
-        
-        // Add screen shake effect
-        if (this.isPlayer) {
-            this.screenShake();
+    takeHit(attackSpec, attacker, contactX, contactY) {
+        this.health = Math.max(0, this.health - attackSpec.damage);
+        this.hitstun = attackSpec.hitstun;
+        this.isAttacking = false; // Interrupted
+
+        // Directional pushback away from attacker
+        const pushDirection = attacker.facingRight ? 1 : -1;
+        this.velocityX = attackSpec.pushback * pushDirection;
+
+        // Slight lift on combo or super
+        if (attackSpec.damage >= 24) {
+            this.velocityY = -4;
+            this.onGround = false;
         }
-        
-        console.log(`${this.name} took ${amount} damage. Health: ${this.health}`);
+
+        this.gainSuperMeter(attackSpec.damage * 0.25);
+
+        // Trigger Phase 1 impact feel in Game engine
+        const isKO = this.health <= 0;
+        game.onHitConfirmed(attackSpec, contactX, contactY, attacker.sparkColor, isKO);
     }
 
-    // Super meter system
     gainSuperMeter(amount) {
         this.superMeter = Math.min(GAME_CONFIG.combat.maxSuperMeter, this.superMeter + amount);
     }
 
-    // Visual effects
-    createAttackEffect(type) {
-        console.log(`${this.name} used ${type} attack!`);
-    }
-
-    screenShake() {
-        const canvas = document.getElementById('gameCanvas');
-        canvas.style.transform = 'translateX(2px)';
-        setTimeout(() => {
-            canvas.style.transform = 'translateX(-2px)';
-            setTimeout(() => {
-                canvas.style.transform = 'translateX(0)';
-            }, 50);
-        }, 50);
-    }
-
-    // Simple AI system
     updateAI() {
+        if (this.hitstun > 0) return;
+
         const player = game.player;
         const distance = Math.abs(this.x - player.x);
-        
-        // Random behavior every 60 frames
-        if (Math.random() < 0.03) { // Slightly more aggressive AI
-            const action = Math.random();
-            
-            if (distance > 100) {
-                // Move towards player
-                if (this.x < player.x) {
-                    this.move('right');
-                } else {
-                    this.move('left');
-                }
-            } else if (distance < 80 && this.attackCooldown === 0) {
-                // Attack if close
-                if (action < 0.4) {
-                    this.attack('light', player);
-                } else if (action < 0.7) {
-                    this.attack('heavy', player);
-                } else if (action < 0.9) {
-                    this.attack('combo', player);
-                } else if (this.superMeter >= GAME_CONFIG.combat.maxSuperMeter) {
+
+        // Turn towards player
+        this.facingRight = (this.x < player.x);
+
+        if (Math.random() < 0.04) {
+            const roll = Math.random();
+
+            if (distance > 110) {
+                this.move(this.x < player.x ? 'right' : 'left');
+            } else if (distance <= 80 && this.attackCooldown === 0) {
+                if (this.superMeter >= GAME_CONFIG.combat.maxSuperMeter && roll < 0.25) {
                     this.attack('super', player);
+                } else if (roll < 0.5) {
+                    this.attack('light', player);
+                } else if (roll < 0.8) {
+                    this.attack('heavy', player);
+                } else {
+                    this.attack('combo', player);
                 }
-            } else if (action < 0.1 && this.onGround) {
-                // Random jump
+            } else if (roll < 0.1 && this.onGround) {
                 this.jump();
             }
         }
     }
 
-    // Drawing the stickman fighter
     draw(ctx) {
         ctx.save();
-        ctx.translate(this.x + this.width/2, this.y);
-        
-        // Flip if facing left
+        ctx.translate(this.x + this.width / 2, this.y);
+
         if (!this.facingRight) {
             ctx.scale(-1, 1);
         }
 
-        // Set color
         ctx.strokeStyle = this.color;
         ctx.fillStyle = this.color;
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 3.5;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
 
-        // Draw based on animation
         this.drawStickman(ctx);
-        
+
         ctx.restore();
-        
-        // Draw name and health bar above character
         this.drawNameAndHealth(ctx);
     }
 
     drawStickman(ctx) {
         const headRadius = 8;
-        const bodyHeight = 30;
-        const limbLength = 15;
-        
-        // Animation offsets
+        const bodyHeight = 32;
+        const limbLength = 16;
+
         let armAngle = 0;
         let legAngle = 0;
-        
-        if (this.currentAnimation === 'walk') {
-            armAngle = Math.sin(this.animationFrame * 0.3) * 0.5;
-            legAngle = Math.sin(this.animationFrame * 0.3) * 0.8;
+        let torsoAngle = 0;
+
+        // Pose handling based on state
+        if (this.currentAnimation === 'hurt') {
+            torsoAngle = -0.35; // Knocked back
+            armAngle = -1.4;
+            legAngle = 0.4;
+        } else if (this.currentAnimation === 'walk') {
+            armAngle = Math.sin(this.animationFrame * 0.4) * 0.6;
+            legAngle = Math.sin(this.animationFrame * 0.4) * 0.8;
         } else if (this.currentAnimation === 'attack') {
-            armAngle = -1.2;
+            armAngle = this.specialty === 'punches' ? -1.5 : -0.6;
+            legAngle = this.specialty === 'kicks' ? 1.3 : 0.2;
+            torsoAngle = 0.15; // Lean into strike
         } else if (this.currentAnimation === 'jump') {
-            armAngle = -0.5;
+            armAngle = -0.8;
             legAngle = 0.5;
         }
+
+        ctx.rotate(torsoAngle);
 
         // Head
         ctx.beginPath();
         ctx.arc(0, headRadius, headRadius, 0, Math.PI * 2);
         ctx.stroke();
-        
-        // Add hair/dress indicator for female characters
+
+        // Female hair/dress visual identifier
         if (this.character.type === 'female') {
-            // Simple dress shape
             ctx.beginPath();
-            ctx.moveTo(-8, bodyHeight + 10);
-            ctx.lineTo(8, bodyHeight + 10);
-            ctx.lineTo(6, bodyHeight + 20);
-            ctx.lineTo(-6, bodyHeight + 20);
+            ctx.moveTo(-7, bodyHeight + 8);
+            ctx.lineTo(7, bodyHeight + 8);
+            ctx.lineTo(5, bodyHeight + 18);
+            ctx.lineTo(-5, bodyHeight + 18);
             ctx.closePath();
             ctx.stroke();
         }
 
-        // Body
+        // Spine/Torso
         ctx.beginPath();
         ctx.moveTo(0, headRadius * 2);
         ctx.lineTo(0, bodyHeight);
         ctx.stroke();
 
         // Arms
-        const armStartY = headRadius * 2 + 8;
-        
-        // Left arm
+        const shoulderY = headRadius * 2 + 6;
+
+        // Back Arm
         ctx.beginPath();
-        ctx.moveTo(0, armStartY);
-        ctx.lineTo(-limbLength * Math.cos(armAngle), armStartY + limbLength * Math.sin(armAngle));
+        ctx.moveTo(0, shoulderY);
+        ctx.lineTo(-limbLength * Math.cos(armAngle), shoulderY + limbLength * Math.sin(armAngle));
         ctx.stroke();
-        
-        // Right arm
+
+        // Lead Arm (Thrust forward on punch)
         ctx.beginPath();
-        ctx.moveTo(0, armStartY);
-        ctx.lineTo(limbLength * Math.cos(armAngle), armStartY + limbLength * Math.sin(armAngle));
+        ctx.moveTo(0, shoulderY);
+        if (this.isAttacking && this.specialty === 'punches') {
+            ctx.lineTo(limbLength * 1.8, shoulderY); // Straight jab
+        } else {
+            ctx.lineTo(limbLength * Math.cos(armAngle), shoulderY + limbLength * Math.sin(armAngle));
+        }
         ctx.stroke();
 
         // Legs
-        const legStartY = bodyHeight;
-        
-        // Left leg
+        const hipY = bodyHeight;
+
+        // Back Leg
         ctx.beginPath();
-        ctx.moveTo(0, legStartY);
-        ctx.lineTo(-limbLength * Math.cos(legAngle), legStartY + limbLength);
-        ctx.stroke();
-        
-        // Right leg
-        ctx.beginPath();
-        ctx.moveTo(0, legStartY);
-        ctx.lineTo(limbLength * Math.cos(legAngle), legStartY + limbLength);
+        ctx.moveTo(0, hipY);
+        ctx.lineTo(-limbLength * Math.cos(legAngle), hipY + limbLength);
         ctx.stroke();
 
-        // Attack effect
-        if (this.isAttacking && this.attackCooldown > 15) {
-            ctx.strokeStyle = '#FFD700';
-            ctx.lineWidth = 5;
-            ctx.beginPath();
-            if (this.specialty === 'punches') {
-                // Punch effect
-                ctx.arc(15, armStartY, 5, 0, Math.PI * 2);
-            } else {
-                // Kick effect
-                ctx.arc(15, legStartY + 10, 5, 0, Math.PI * 2);
-            }
-            ctx.stroke();
+        // Lead Leg (Extended on kick)
+        ctx.beginPath();
+        ctx.moveTo(0, hipY);
+        if (this.isAttacking && this.specialty === 'kicks') {
+            ctx.lineTo(limbLength * 2, hipY - 6); // High thrust kick
+        } else {
+            ctx.lineTo(limbLength * Math.cos(legAngle), hipY + limbLength);
         }
+        ctx.stroke();
     }
 
     drawNameAndHealth(ctx) {
-        // Name
         ctx.fillStyle = this.color;
-        ctx.font = '12px Arial';
+        ctx.font = 'bold 12px Arial';
         ctx.textAlign = 'center';
-        ctx.fillText(this.name, this.x + this.width/2, this.y - 10);
-        
-        // Mini health bar above character
-        const barWidth = 40;
-        const barHeight = 4;
+        ctx.fillText(this.name, this.x + this.width / 2, this.y - 14);
+
+        // Mini health bar over head
+        const barW = 44;
+        const barH = 4;
         const healthPercent = this.health / GAME_CONFIG.combat.maxHealth;
-        
-        ctx.fillStyle = '#333';
-        ctx.fillRect(this.x + this.width/2 - barWidth/2, this.y - 25, barWidth, barHeight);
-        
+
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillRect(this.x + this.width / 2 - barW / 2, this.y - 28, barW, barH);
+
         ctx.fillStyle = healthPercent > 0.3 ? '#4AE290' : '#FF4444';
-        ctx.fillRect(this.x + this.width/2 - barWidth/2, this.y - 25, barWidth * healthPercent, barHeight);
+        ctx.fillRect(this.x + this.width / 2 - barW / 2, this.y - 28, barW * healthPercent, barH);
     }
 }
 
-// Main Game Class
 class Game {
     constructor() {
         this.canvas = document.getElementById('gameCanvas');
@@ -502,19 +544,26 @@ class Game {
         this.enemy = null;
         this.keys = {};
         this.gameLoop = null;
-        
+
+        // Phase 1 Game Feel Properties
+        this.hitstopFrames = 0;
+        this.shakeDuration = 0;
+        this.shakeIntensity = 0;
+        this.screenFlashAlpha = 0;
+        this.timeScale = 1.0;
+        this.slowMoFrames = 0;
+        this.particles = [];
+
         this.setupEventListeners();
     }
 
     setupEventListeners() {
-        // Character selection
         document.querySelectorAll('.character-card').forEach(card => {
             card.addEventListener('click', () => {
                 this.selectCharacter(card.dataset.character);
             });
         });
 
-        // Game over buttons
         document.getElementById('restart-btn').addEventListener('click', () => {
             this.startGame();
         });
@@ -523,7 +572,6 @@ class Game {
             gameState.setState('character-select');
         });
 
-        // Keyboard controls
         document.addEventListener('keydown', (e) => {
             this.keys[e.key.toLowerCase()] = true;
         });
@@ -534,54 +582,49 @@ class Game {
     }
 
     selectCharacter(characterKey) {
-        // Remove previous selection
         document.querySelectorAll('.character-card').forEach(card => {
-            card.classList.remove('selected');
+            card.classList.remove('selected', 'ready-to-start');
+            const msg = card.querySelector('.start-message');
+            if (msg) msg.remove();
         });
 
-        // Add selection to clicked card
-        document.querySelector(`[data-character="${characterKey}"]`).classList.add('selected');
-        
-        gameState.selectedCharacter = CHARACTERS[characterKey];
-        
-        // Show start game message
         const selectedCard = document.querySelector(`[data-character="${characterKey}"]`);
-        if (!selectedCard.querySelector('.start-message')) {
-            const startMessage = document.createElement('div');
-            startMessage.className = 'start-message';
-            startMessage.innerHTML = '<strong>Click again to START GAME!</strong>';
-            startMessage.style.cssText = 'margin-top: 10px; color: #4AE290; font-weight: bold; animation: pulse 1s infinite;';
-            selectedCard.appendChild(startMessage);
-        }
-        
-        // If already selected, start game
-        if (selectedCard.classList.contains('ready-to-start')) {
+        selectedCard.classList.add('selected');
+        gameState.selectedCharacter = CHARACTERS[characterKey];
+
+        const startMessage = document.createElement('div');
+        startMessage.className = 'start-message';
+        startMessage.innerHTML = '<strong>Click again to FIGHT!</strong>';
+        startMessage.style.cssText = 'margin-top: 10px; color: #4AE290; font-weight: bold; animation: pulse 1s infinite;';
+        selectedCard.appendChild(startMessage);
+
+        selectedCard.onclick = () => {
             this.startGame();
-        } else {
-            selectedCard.classList.add('ready-to-start');
-        }
+        };
     }
 
     startGame() {
         if (!gameState.selectedCharacter) {
-            // Auto-select first character if none selected
             gameState.selectedCharacter = CHARACTERS.yukito;
         }
 
-        // Random enemy selection (different from player)
         const characterKeys = Object.keys(CHARACTERS);
         let enemyKey;
         do {
             enemyKey = characterKeys[Math.floor(Math.random() * characterKeys.length)];
         } while (CHARACTERS[enemyKey] === gameState.selectedCharacter);
-        
+
         gameState.enemyCharacter = CHARACTERS[enemyKey];
 
-        // Create fighters
-        this.player = new Fighter(gameState.selectedCharacter, 150, 0, true);
-        this.enemy = new Fighter(gameState.enemyCharacter, 750, 0, false);
+        this.player = new Fighter(gameState.selectedCharacter, 200, 0, true);
+        this.enemy = new Fighter(gameState.enemyCharacter, 720, 0, false);
 
-        // Update UI
+        this.particles = [];
+        this.hitstopFrames = 0;
+        this.shakeDuration = 0;
+        this.slowMoFrames = 0;
+        this.timeScale = 1.0;
+
         document.querySelector('.player-name').textContent = this.player.name;
         document.querySelector('.enemy-name').textContent = this.enemy.name;
 
@@ -603,25 +646,92 @@ class Game {
         loop();
     }
 
+    // Called on every hit connection
+    onHitConfirmed(attackSpec, x, y, sparkColor, isKO) {
+        // 1. Trigger Hitstop (Freeze frames)
+        this.hitstopFrames = attackSpec.hitstop;
+
+        // 2. Trigger Screen Shake
+        this.shakeIntensity = attackSpec.shake;
+        this.shakeDuration = attackSpec.hitstop + 6;
+
+        // 3. Screen Flash for high damage / supers
+        if (attackSpec.damage >= 24) {
+            this.screenFlashAlpha = 0.45;
+        }
+
+        // 4. Spawn Burst of Sparks & Shockwave Rings
+        this.spawnImpactParticles(x, y, sparkColor, attackSpec.damage);
+
+        // 5. Trigger Slow-Mo if this hit defeats the fighter
+        if (isKO) {
+            this.triggerSlowMo(50, 0.15); // Dramatic 0.15x speed finish
+        }
+    }
+
+    spawnImpactParticles(x, y, color, damage) {
+        const count = Math.min(30, 8 + Math.floor(damage * 0.7));
+
+        // Expanding shockwave ring
+        this.particles.push(new Particle(x, y, 0, 0, '#FFFFFF', damage * 2.2, 16, 'ring'));
+
+        // High-velocity sparks
+        for (let i = 0; i < count; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const speed = 4 + Math.random() * (damage * 0.5);
+            const vx = Math.cos(angle) * speed;
+            const vy = Math.sin(angle) * speed;
+            const life = 10 + Math.random() * 15;
+            const size = 2 + Math.random() * 3;
+
+            // Mix primary character spark color with bright white/gold core sparks
+            const pColor = Math.random() > 0.4 ? color : '#FFF';
+            this.particles.push(new Particle(x, y, vx, vy, pColor, size, life, 'spark'));
+        }
+    }
+
+    triggerSlowMo(frames = 45, scale = 0.2) {
+        this.slowMoFrames = frames;
+        this.timeScale = scale;
+    }
+
     update() {
         if (gameState.current !== 'playing') return;
 
-        // Handle input
+        // Handle Slow-Mo recovery
+        if (this.slowMoFrames > 0) {
+            this.slowMoFrames--;
+            if (this.slowMoFrames === 0) {
+                this.timeScale = 1.0;
+            }
+        }
+
+        // Particles always update, even in hitstop, for crisp impact animation
+        for (let i = this.particles.length - 1; i >= 0; i--) {
+            this.particles[i].update();
+            if (this.particles[i].life <= 0) {
+                this.particles.splice(i, 1);
+            }
+        }
+
+        // HITSTOP: Freeze character physics while impact resonates
+        if (this.hitstopFrames > 0) {
+            this.hitstopFrames--;
+            return;
+        }
+
         this.handleInput();
 
-        // Update fighters
         this.player.update();
         this.enemy.update();
 
-        // Update UI
         this.updateUI();
-
-        // Check game over
         this.checkGameOver();
     }
 
     handleInput() {
-        // Movement
+        if (this.player.hitstun > 0) return;
+
         if (this.keys['a']) {
             this.player.move('left');
         }
@@ -632,10 +742,9 @@ class Game {
             this.player.jump();
         }
 
-        // Attacks
         if (this.keys['j']) {
             this.player.attack('light', this.enemy);
-            this.keys['j'] = false; // Prevent spam
+            this.keys['j'] = false;
         }
         if (this.keys['k']) {
             this.player.attack('heavy', this.enemy);
@@ -652,122 +761,119 @@ class Game {
     }
 
     updateUI() {
-        // Health bars
         const playerHealthPercent = Math.max(0, (this.player.health / GAME_CONFIG.combat.maxHealth) * 100);
         const enemyHealthPercent = Math.max(0, (this.enemy.health / GAME_CONFIG.combat.maxHealth) * 100);
-        
+
         const playerHealthBar = document.getElementById('player-health');
         const enemyHealthBar = document.getElementById('enemy-health');
-        
+
         playerHealthBar.style.width = playerHealthPercent + '%';
         enemyHealthBar.style.width = enemyHealthPercent + '%';
-        
-        // Super meters
+
         const playerSuperPercent = (this.player.superMeter / GAME_CONFIG.combat.maxSuperMeter) * 100;
         const enemySuperPercent = (this.enemy.superMeter / GAME_CONFIG.combat.maxSuperMeter) * 100;
-        
+
         const playerSuperBar = document.getElementById('player-super');
         const enemySuperBar = document.getElementById('enemy-super');
-        
+
         playerSuperBar.style.width = playerSuperPercent + '%';
         enemySuperBar.style.width = enemySuperPercent + '%';
-        
-        // Add visual effects for low health
-        if (playerHealthPercent < 30) {
-            playerHealthBar.classList.add('low');
-        } else {
-            playerHealthBar.classList.remove('low');
-        }
-        
-        if (enemyHealthPercent < 30) {
-            enemyHealthBar.classList.add('low');
-        } else {
-            enemyHealthBar.classList.remove('low');
-        }
-        
-        // Super meter full effect
-        if (playerSuperPercent >= 100) {
-            playerSuperBar.parentElement.classList.add('full');
-        } else {
-            playerSuperBar.parentElement.classList.remove('full');
-        }
-        
-        if (enemySuperPercent >= 100) {
-            enemySuperBar.parentElement.classList.add('full');
-        } else {
-            enemySuperBar.parentElement.classList.remove('full');
-        }
+
+        playerHealthBar.classList.toggle('low', playerHealthPercent < 30);
+        enemyHealthBar.classList.toggle('low', enemyHealthPercent < 30);
+        playerSuperBar.parentElement.classList.toggle('full', playerSuperPercent >= 100);
+        enemySuperBar.parentElement.classList.toggle('full', enemySuperPercent >= 100);
     }
 
     checkGameOver() {
-        if (this.player.health <= 0) {
-            console.log('Player defeated!');
+        if (this.player.health <= 0 && this.hitstopFrames === 0) {
             this.gameOver(false);
-        } else if (this.enemy.health <= 0) {
-            console.log('Enemy defeated!');
+        } else if (this.enemy.health <= 0 && this.hitstopFrames === 0) {
             this.gameOver(true);
         }
     }
 
     gameOver(playerWon) {
         cancelAnimationFrame(this.gameLoop);
-        
+
         const resultElement = document.getElementById('game-result');
         const messageElement = document.getElementById('game-message');
-        
+
         if (playerWon) {
-            resultElement.textContent = 'VICTORY!';
+            resultElement.textContent = 'K.O. - VICTORY!';
             resultElement.style.color = '#4AE290';
-            messageElement.textContent = `${this.player.name} defeats ${this.enemy.name}!`;
+            messageElement.textContent = `${this.player.name} wins by Knockout!`;
         } else {
-            resultElement.textContent = 'DEFEAT!';
+            resultElement.textContent = 'K.O. - DEFEAT!';
             resultElement.style.color = '#FF4444';
-            messageElement.textContent = `${this.enemy.name} defeats ${this.player.name}!`;
+            messageElement.textContent = `${this.enemy.name} knocked you out!`;
         }
-        
+
         setTimeout(() => {
             gameState.setState('game-over');
-        }, 1000); // Small delay to see the final hit
+        }, 1200);
     }
 
     draw() {
         if (gameState.current !== 'playing') return;
 
-        // Clear canvas
-        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        // Calculate Canvas-Native Screen Shake
+        let shakeX = 0;
+        let shakeY = 0;
+        if (this.shakeDuration > 0) {
+            this.shakeDuration--;
+            shakeX = (Math.random() - 0.5) * this.shakeIntensity;
+            shakeY = (Math.random() - 0.5) * this.shakeIntensity;
+            this.shakeIntensity *= 0.88;
+        }
 
-        // Draw background
+        this.ctx.save();
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        this.ctx.translate(shakeX, shakeY);
+
+        // 1. Draw World & Background
         this.drawBackground();
 
-        // Draw fighters
+        // 2. Draw Fighters
         this.player.draw(this.ctx);
         this.enemy.draw(this.ctx);
 
-        // Draw combo counter
-        if (this.player.comboCount > 0) {
+        // 3. Draw Impact Sparks & Shockwaves
+        for (const particle of this.particles) {
+            particle.draw(this.ctx);
+        }
+
+        // 4. UI Indicators on Canvas
+        if (this.player.comboCount > 1) {
             this.drawComboCounter();
         }
-        
-        // Draw super move ready indicator
         if (this.player.superMeter >= GAME_CONFIG.combat.maxSuperMeter) {
             this.drawSuperReady();
         }
+
+        // 5. White Screen Flash on Heavy/Super Hits
+        if (this.screenFlashAlpha > 0) {
+            this.ctx.fillStyle = `rgba(255, 255, 255, ${this.screenFlashAlpha})`;
+            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+            this.screenFlashAlpha = Math.max(0, this.screenFlashAlpha - 0.05);
+        }
+
+        this.ctx.restore();
     }
 
     drawBackground() {
-        // Sky gradient
         const gradient = this.ctx.createLinearGradient(0, 0, 0, this.canvas.height);
         gradient.addColorStop(0, '#87CEEB');
         gradient.addColorStop(0.7, '#87CEEB');
         gradient.addColorStop(0.7, '#228B22');
         gradient.addColorStop(1, '#228B22');
-        
+
         this.ctx.fillStyle = gradient;
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
         // Ground line
         this.ctx.strokeStyle = '#8B4513';
-        this.ctx.lineWidth = 2;
+        this.ctx.lineWidth = 3;
         this.ctx.beginPath();
         this.ctx.moveTo(0, this.canvas.height - 100);
         this.ctx.lineTo(this.canvas.width, this.canvas.height - 100);
@@ -775,17 +881,25 @@ class Game {
     }
 
     drawComboCounter() {
+        this.ctx.save();
         this.ctx.fillStyle = '#FFD700';
-        this.ctx.font = 'bold 24px Arial';
+        this.ctx.shadowColor = 'rgba(0,0,0,0.5)';
+        this.ctx.shadowBlur = 6;
+        this.ctx.font = '900 28px Arial';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText(`${this.player.comboCount} HIT COMBO!`, this.canvas.width / 2, 100);
+        this.ctx.fillText(`${this.player.comboCount} HIT COMBO!`, this.canvas.width / 2, 90);
+        this.ctx.restore();
     }
-    
+
     drawSuperReady() {
-        this.ctx.fillStyle = '#FFD700';
-        this.ctx.font = 'bold 18px Arial';
+        this.ctx.save();
+        this.ctx.fillStyle = '#FF4444';
+        this.ctx.shadowColor = '#FFD700';
+        this.ctx.shadowBlur = 8;
+        this.ctx.font = 'bold 16px Arial';
         this.ctx.textAlign = 'center';
-        this.ctx.fillText('SUPER READY! Press U', this.canvas.width / 2, 130);
+        this.ctx.fillText('SUPER READY! [U]', this.canvas.width / 2, 125);
+        this.ctx.restore();
     }
 }
 
@@ -793,8 +907,4 @@ class Game {
 const gameState = new GameState();
 const game = new Game();
 
-// Start with character selection screen
 gameState.setState('character-select');
-
-console.log('🥊 Stickman Fighter Game Loaded! 🥊');
-console.log('Choose your character and start fighting!');
